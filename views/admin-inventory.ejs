@@ -1,28 +1,240 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Inventory</title>
-    <link rel="stylesheet" href="/styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Stok Yönetimi</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
+    h1 { margin-top: 0; }
+    .toolbar { display: grid; grid-template-columns: 1fr 220px; gap: 10px; margin-bottom: 14px; }
+    input, select, button { padding: 8px 10px; border: 1px solid #cfd6df; border-radius: 8px; font-size: 14px; }
+    button { cursor: pointer; background: #fff; }
+    button.primary { background: #1d4ed8; color: white; border-color: #1d4ed8; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+    th, td { padding: 10px; border-bottom: 1px solid #eef1f5; text-align: left; vertical-align: middle; }
+    th { background: #f1f5f9; font-size: 13px; }
+    .thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .actions button { font-size: 12px; padding: 6px 8px; }
+    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(15,23,42,.45); }
+    .modal.open { display: flex; }
+    .card { width: min(420px, 92vw); background: white; border-radius: 12px; padding: 16px; }
+    .card h2 { margin-top: 0; font-size: 18px; }
+    .grid { display: grid; gap: 10px; }
+    .row { display: grid; gap: 4px; }
+    .row label { font-size: 12px; color: #475569; }
+    .card-footer { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
+  </style>
 </head>
 <body>
-    <h1>Inventory Management</h1>
-    <div id="inventory">
-        <h2>Current Inventory</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Item</th>
-                    <th>Quantity</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Inventory items will be injected here by JavaScript -->
-            </tbody>
-        </table>
+  <h1>Stok Yönetimi</h1>
+
+  <div class="toolbar">
+    <input id="searchInput" placeholder="Ürün adı veya barkod ile ara">
+    <select id="categoryFilter">
+      <option value="Tümü">Tüm Kategoriler</option>
+    </select>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Resim</th>
+        <th>Ürün Adı</th>
+        <th>Kategori</th>
+        <th>Barkod</th>
+        <th>Stok</th>
+        <th>Fiyat</th>
+        <th>İşlemler</th>
+      </tr>
+    </thead>
+    <tbody id="inventoryBody"></tbody>
+  </table>
+
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="card">
+      <h2 id="modalTitle"></h2>
+      <form id="modalForm" class="grid"></form>
+      <div class="card-footer">
+        <button type="button" id="cancelBtn">Vazgeç</button>
+        <button type="button" id="saveBtn" class="primary">Kaydet</button>
+      </div>
     </div>
-    <script src="/inventory.js"></script>
+  </div>
+
+  <script>
+    const state = {
+      products: [],
+      selectedProduct: null,
+      mode: null
+    };
+
+    const inventoryBody = document.getElementById('inventoryBody');
+    const searchInput = document.getElementById('searchInput');
+    const categoryFilter = document.getElementById('categoryFilter');
+    const modal = document.getElementById('modal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalForm = document.getElementById('modalForm');
+    const saveBtn = document.getElementById('saveBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatPrice(value) {
+      return Number(value || 0).toFixed(2) + ' ₺';
+    }
+
+    function safeImage(image) {
+      return image || '/images/default-product.png';
+    }
+
+    function setCategories(products) {
+      const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+      const current = categoryFilter.value;
+      categoryFilter.innerHTML = '<option value="Tümü">Tüm Kategoriler</option>' +
+        categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
+      categoryFilter.value = categories.includes(current) ? current : 'Tümü';
+    }
+
+    async function loadProducts() {
+      const params = new URLSearchParams();
+      if (searchInput.value.trim()) params.set('search', searchInput.value.trim());
+      if (categoryFilter.value !== 'Tümü') params.set('category', categoryFilter.value);
+
+      const response = await fetch('/api/products?' + params.toString());
+      const payload = await response.json();
+      state.products = payload.products || [];
+      setCategories(state.products);
+      renderTable(state.products);
+    }
+
+    function renderTable(products) {
+      inventoryBody.innerHTML = products.map(product => `
+        <tr>
+          <td><img class="thumb" src="${escapeHtml(safeImage(product.image))}" alt="${escapeHtml(product.name || '')}" onerror="this.src='/images/default-product.png'"></td>
+          <td>${escapeHtml(product.name || '-')}</td>
+          <td>${escapeHtml(product.category || '-')}</td>
+          <td>${escapeHtml(product.barcode || '-')}</td>
+          <td>${product.stock ?? 0}</td>
+          <td>${formatPrice(product.price)}</td>
+          <td>
+            <div class="actions">
+              <button onclick="openStockModal('${escapeHtml(product._id)}')">Stok Ekle</button>
+              <button onclick="openEditModal('${escapeHtml(product._id)}')">Ürün Düzenle</button>
+              <button onclick="printLabel('${escapeHtml(product._id)}')">Etiket Yazdır</button>
+              <button onclick="deleteProduct('${escapeHtml(product._id)}')">Ürün Sil</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openModal(title, html, mode, productId) {
+      state.mode = mode;
+      state.selectedProduct = productId;
+      modalTitle.textContent = title;
+      modalForm.innerHTML = html;
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeModal() {
+      state.mode = null;
+      state.selectedProduct = null;
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+      modalForm.innerHTML = '';
+    }
+
+    function openStockModal(productId) {
+      openModal(
+        'Stok Ekle',
+        '<div class="row"><label>Stok Miktarı</label><input type="number" id="stockQuantity" value="1" min="1"></div>',
+        'stock',
+        productId
+      );
+    }
+
+    function openEditModal(productId) {
+      const product = state.products.find(item => item._id === productId);
+      if (!product) return;
+
+      openModal(
+        'Ürün Düzenle',
+        `
+          <div class="row"><label>Ürün Adı</label><input id="editName" value="${escapeHtml(product.name || '')}" required></div>
+          <div class="row"><label>Fiyat</label><input id="editPrice" type="number" min="0" step="0.01" value="${Number(product.price || 0)}" required></div>
+          <div class="row"><label>Kategori</label><input id="editCategory" value="${escapeHtml(product.category || '')}" required></div>
+        `,
+        'edit',
+        productId
+      );
+    }
+
+    async function deleteProduct(productId) {
+      if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
+
+      await fetch('/api/products/' + productId, { method: 'DELETE' });
+      await loadProducts();
+    }
+
+    function printLabel(productId) {
+      window.open('/api/products/' + productId + '/label-pdf', '_blank');
+    }
+
+    async function saveModalAction() {
+      if (!state.selectedProduct || !state.mode) return;
+
+      if (state.mode === 'stock') {
+        const quantity = Number(document.getElementById('stockQuantity').value || 0);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          alert('Geçerli bir stok miktarı girin');
+          return;
+        }
+
+        await fetch('/api/products/' + state.selectedProduct + '/stock', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity })
+        });
+      }
+
+      if (state.mode === 'edit') {
+        const name = document.getElementById('editName').value.trim();
+        const category = document.getElementById('editCategory').value.trim();
+        const price = Number(document.getElementById('editPrice').value || 0);
+
+        if (!name || !category || !Number.isFinite(price) || price < 0) {
+          alert('Ürün adı, kategori ve geçerli fiyat girin');
+          return;
+        }
+
+        await fetch('/api/products/' + state.selectedProduct, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, category, price })
+        });
+      }
+
+      closeModal();
+      await loadProducts();
+    }
+
+    saveBtn.addEventListener('click', saveModalAction);
+    cancelBtn.addEventListener('click', closeModal);
+    searchInput.addEventListener('input', loadProducts);
+    categoryFilter.addEventListener('change', loadProducts);
+
+    loadProducts();
+  </script>
 </body>
 </html>
