@@ -1,28 +1,601 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Inventory</title>
-    <link rel="stylesheet" href="/styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Stok Yönetimi</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
+    h1 { margin-top: 0; }
+    .toolbar { display: grid; grid-template-columns: 1fr 190px 190px 160px; gap: 10px; margin-bottom: 14px; }
+    input, select, button { padding: 8px 10px; border: 1px solid #cfd6df; border-radius: 8px; font-size: 14px; }
+    button { cursor: pointer; background: #fff; }
+    button.primary { background: #1d4ed8; color: white; border-color: #1d4ed8; }
+    button.danger { background: #dc2626; color: white; border-color: #dc2626; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+    th, td { padding: 10px; border-bottom: 1px solid #eef1f5; text-align: left; vertical-align: middle; }
+    th { background: #f1f5f9; font-size: 13px; }
+    .thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .actions button { font-size: 12px; padding: 6px 8px; }
+    .size-badge { display: inline-block; background: #e0f2fe; color: #0369a1; border-radius: 4px; padding: 2px 5px; font-size: 11px; margin: 1px; white-space: nowrap; }
+    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(15,23,42,.60); z-index: 1000; }
+    .modal.open { display: flex; }
+    .card { width: min(480px, 94vw); max-height: 90vh; overflow-y: auto; background: white; border-radius: 12px; padding: 20px; }
+    .card h2 { margin-top: 0; font-size: 18px; }
+    .grid { display: grid; gap: 12px; }
+    .row { display: grid; gap: 4px; }
+    .row label { font-size: 12px; color: #475569; font-weight: 600; }
+    .row input, .row select { width: 100%; box-sizing: border-box; }
+    .sizes-section { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; }
+    .sizes-section label { font-size: 12px; color: #475569; font-weight: 600; display: block; margin-bottom: 8px; }
+    .sizes-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .sizes-table th { background: #f8fafc; padding: 6px 8px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+    .sizes-table td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; }
+    .sizes-table input { padding: 4px 6px; font-size: 13px; border: 1px solid #cfd6df; border-radius: 6px; }
+    .btn-add-size { margin-top: 8px; font-size: 12px; padding: 5px 10px; color: #1d4ed8; border-color: #1d4ed8; }
+    .btn-remove-size { padding: 3px 7px; font-size: 12px; color: #dc2626; border-color: #dc2626; background: #fff; }
+    .card-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; }
+  </style>
 </head>
 <body>
-    <h1>Inventory Management</h1>
-    <div id="inventory">
-        <h2>Current Inventory</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Item</th>
-                    <th>Quantity</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Inventory items will be injected here by JavaScript -->
-            </tbody>
-        </table>
+  <h1>Stok Yönetimi</h1>
+
+  <div class="toolbar">
+    <input id="searchInput" placeholder="Ürün adı veya barkod ile ara">
+    <select id="categoryFilter">
+      <option value="Tümü">Tüm Kategoriler</option>
+    </select>
+    <select id="sizeFilter">
+      <option value="Tümü">Tüm Bedenler</option>
+    </select>
+    <button type="button" id="addProductBtn" class="primary">+ Yeni Ürün Ekle</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Resim</th>
+        <th>Ürün Adı</th>
+        <th>Kategori</th>
+        <th>Barkod</th>
+        <th>Stok / Bedenler</th>
+        <th>Fiyat</th>
+        <th>İşlemler</th>
+      </tr>
+    </thead>
+    <tbody id="inventoryBody"></tbody>
+  </table>
+
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="card">
+      <h2 id="modalTitle"></h2>
+      <form id="modalForm" class="grid"></form>
+      <div class="card-footer">
+        <button type="button" id="cancelBtn">Vazgeç</button>
+        <button type="button" id="saveBtn" class="primary">Kaydet</button>
+      </div>
     </div>
-    <script src="/inventory.js"></script>
+  </div>
+
+  <script>
+    const SIZE_PRESETS = {
+      judo: ['100 cm','110 cm','120 cm','130 cm','140 cm','150 cm','160 cm','170 cm','180 cm','190 cm','200 cm'],
+      ayakkabı: ['36','37','38','39','40','41','42','43','44','45','46'],
+      giyim: ['XXS','XS','S','M','L','XL','XXL','3XL','4XL','5XL']
+    };
+
+    // Kategoriler — beden şablonu eşleştirmesi
+    // Judo, Karate, Taekwondo → cm tabanlı şablon
+    // Boks, Muay Thai, Kick Boks, Güreş, MMA, tüm giyim türleri → S/M/L şablon
+    // Ayakkabı → numara şablon
+    function getCategoryPreset(category) {
+      if (!category) return null;
+      const lower = String(category).toLowerCase().trim();
+      if (lower.includes('judo') || lower.includes('karate') || lower.includes('taekwondo') || lower.includes('tekvando')) {
+        return SIZE_PRESETS.judo;
+      }
+      if (lower.includes('ayakkab')) return SIZE_PRESETS.ayakkabı;
+      if (
+        lower.includes('giyim') ||
+        lower.includes('kıyafet') || lower.includes('kiyafet') ||
+        lower.includes('tekstil') ||
+        lower.includes('boks') ||
+        lower.includes('muay') ||
+        lower.includes('kick') ||
+        lower.includes('güreş') || lower.includes('gures') ||
+        lower.includes('mma') ||
+        lower.includes('fitness') ||
+        lower.includes('outdoor') ||
+        lower.includes('sporcu')
+      ) return SIZE_PRESETS.giyim;
+      return null;
+    }
+
+    const state = {
+      products: [],
+      selectedProduct: null,
+      mode: null
+    };
+
+    const inventoryBody = document.getElementById('inventoryBody');
+    const searchInput = document.getElementById('searchInput');
+    const categoryFilter = document.getElementById('categoryFilter');
+    const sizeFilter = document.getElementById('sizeFilter');
+    const modal = document.getElementById('modal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalForm = document.getElementById('modalForm');
+    const saveBtn = document.getElementById('saveBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatPrice(value) {
+      return Number(value || 0).toFixed(2) + ' ₺';
+    }
+
+    function safeImage(image) {
+      return image || '/images/default-product.png';
+    }
+
+    function setCategories(products) {
+      const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+      const current = categoryFilter.value;
+      categoryFilter.innerHTML = '<option value="Tümü">Tüm Kategoriler</option>' +
+        categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
+      categoryFilter.value = categories.includes(current) ? current : 'Tümü';
+    }
+
+    function setSizes(products) {
+      const sizes = [...new Set(
+        products.flatMap(p => (p.sizes || []).map(s => s.size)).filter(Boolean)
+      )].sort();
+      const current = sizeFilter.value;
+      sizeFilter.innerHTML = '<option value="Tümü">Tüm Bedenler</option>' +
+        sizes.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      sizeFilter.value = sizes.includes(current) ? current : 'Tümü';
+    }
+
+    async function requestJson(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.message || 'İstek başarısız');
+      }
+      return payload;
+    }
+
+    async function loadProducts() {
+      const params = new URLSearchParams();
+      if (searchInput.value.trim()) params.set('search', searchInput.value.trim());
+      if (categoryFilter.value !== 'Tümü') params.set('category', categoryFilter.value);
+
+      try {
+        const payload = await requestJson('/api/products?' + params.toString());
+        state.products = payload.products || [];
+        setCategories(state.products);
+        setSizes(state.products);
+        applyFiltersAndRender();
+      } catch (error) {
+        alert(error.message || 'Ürünler yüklenemedi');
+      }
+    }
+
+    function applyFiltersAndRender() {
+      let products = state.products;
+      const selectedSize = sizeFilter.value;
+      if (selectedSize !== 'Tümü') {
+        products = products.filter(p =>
+          p.sizes && p.sizes.some(s => s.size === selectedSize)
+        );
+      }
+      renderTable(products);
+    }
+
+    function renderStockCell(product) {
+      if (product.sizes && product.sizes.length > 0) {
+        const badges = product.sizes
+          .map(s => `<span class="size-badge">${escapeHtml(s.size)}: ${s.stock}</span>`)
+          .join(' ');
+        return `<div>${badges}</div><small style="color:#64748b">Toplam: ${product.stock ?? 0}</small>`;
+      }
+      return String(product.stock ?? 0);
+    }
+
+    function renderTable(products) {
+      if (products.length === 0) {
+        inventoryBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px">Ürün bulunamadı</td></tr>';
+        return;
+      }
+      inventoryBody.innerHTML = products.map(product => `
+        <tr>
+          <td><img class="thumb" src="${escapeHtml(safeImage(product.image))}" alt="${escapeHtml(product.name || '')}" onerror="this.src='/images/default-product.png'"></td>
+          <td>${escapeHtml(product.name || '-')}</td>
+          <td>${escapeHtml(product.category || '-')}</td>
+          <td>${escapeHtml(product.barcode || '-')}</td>
+          <td>${renderStockCell(product)}</td>
+          <td>${formatPrice(product.price)}</td>
+          <td>
+            <div class="actions">
+              <button data-action="stock" data-id="${escapeHtml(product._id)}">Stok Ekle</button>
+              <button data-action="edit" data-id="${escapeHtml(product._id)}">Ürün Düzenle</button>
+              <button data-action="print" data-id="${escapeHtml(product._id)}">Etiket Yazdır</button>
+              <button data-action="delete" data-id="${escapeHtml(product._id)}">Ürün Sil</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openModal(title, html, mode, productId) {
+      state.mode = mode;
+      state.selectedProduct = productId;
+      modalTitle.textContent = title;
+      modalForm.innerHTML = html;
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeModal() {
+      state.mode = null;
+      state.selectedProduct = null;
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+      modalForm.innerHTML = '';
+    }
+
+    function openStockModal(productId) {
+      const product = state.products.find(p => p._id === productId);
+      if (!product) return;
+
+      let html = '';
+
+      if (product.sizes && product.sizes.length > 0) {
+        const sizeOptions = product.sizes
+          .map(s => `<option value="${escapeHtml(s.size)}">${escapeHtml(s.size)} (Mevcut: ${s.stock})</option>`)
+          .join('');
+
+        html = `
+          <div class="row">
+            <label for="stockSize">Beden Seç</label>
+            <select id="stockSize">
+              ${sizeOptions}
+              <option value="__new__">+ Yeni beden ekle...</option>
+            </select>
+          </div>
+          <div id="newSizeRow" class="row" style="display:none">
+            <label for="newSizeInput">Yeni Beden Adı</label>
+            <input id="newSizeInput" placeholder="Örn: XL, 42, M">
+          </div>
+          <div class="row">
+            <label for="stockQuantity">Eklenecek Miktar</label>
+            <input type="number" id="stockQuantity" value="1" min="1">
+          </div>
+        `;
+      } else {
+        html = `
+          <div class="row">
+            <label for="stockSize">Beden (opsiyonel)</label>
+            <input id="stockSize" placeholder="Örn: S, M, L, 42 — boş bırakabilirsiniz">
+          </div>
+          <div class="row">
+            <label for="stockQuantity">Stok Miktarı</label>
+            <input type="number" id="stockQuantity" value="1" min="1">
+          </div>
+        `;
+      }
+
+      openModal('Stok Ekle', html, 'stock', productId);
+
+      const sizeSelect = document.getElementById('stockSize');
+      if (sizeSelect && sizeSelect.tagName === 'SELECT') {
+        sizeSelect.addEventListener('change', () => {
+          const newSizeRow = document.getElementById('newSizeRow');
+          if (newSizeRow) {
+            newSizeRow.style.display = sizeSelect.value === '__new__' ? 'grid' : 'none';
+          }
+        });
+      }
+    }
+
+    function buildSizeRows(sizes) {
+      if (!sizes || sizes.length === 0) return '';
+      return sizes.map(s => `
+        <tr>
+          <td><input class="size-name" value="${escapeHtml(s.size)}" placeholder="Beden" style="width:80px"></td>
+          <td><input type="number" class="size-stock" value="${Number(s.stock) || 0}" min="0" style="width:80px"></td>
+          <td><button type="button" class="btn-remove-size">✕</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function buildProductFormHtml(product) {
+      const p = product || {};
+      return `
+        <div class="row">
+          <label for="editName">Ürün Adı</label>
+          <input id="editName" value="${escapeHtml(p.name || '')}" required>
+        </div>
+        <div class="row">
+          <label for="editPrice">Fiyat</label>
+          <input id="editPrice" type="number" min="0" step="0.01" value="${p.price != null ? Number(p.price) : ''}" required>
+        </div>
+        <div class="row">
+          <label for="editCategory">Kategori</label>
+          <input id="editCategory" value="${escapeHtml(p.category || '')}" list="editCategoryList" autocomplete="off" required>
+          <datalist id="editCategoryList">
+            <optgroup label="Dövüş Sporları">
+            <option value="Judo">
+            <option value="Karate">
+            <option value="Taekwondo">
+            <option value="Boks">
+            <option value="Muay Thai">
+            <option value="Kick Boks">
+            <option value="Güreş">
+            <option value="MMA">
+            </optgroup>
+            <optgroup label="Giyim ve Ayakkabı">
+            <option value="Spor Giyim">
+            <option value="Spor Ayakkabı">
+            <option value="Giyim">
+            <option value="Ayakkabı">
+            </optgroup>
+            <optgroup label="Spor ve Ekipman">
+            <option value="Fitness Ekipmanı">
+            <option value="Outdoor Ekipman">
+            <option value="Kamp Malzemeleri">
+            <option value="Sporcu Beslenme">
+            </optgroup>
+            <optgroup label="Diğer">
+            <option value="Aksesuar">
+            <option value="Diğer">
+            </optgroup>
+          </datalist>
+        </div>
+        <div id="presetBanner" style="display:none; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 12px; font-size:13px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <span id="presetBannerText" style="color:#1e40af;"></span>
+            <button type="button" id="applyPresetBtn" style="font-size:12px; padding:5px 12px; background:#1d4ed8; color:#fff; border:none; border-radius:6px; cursor:pointer; white-space:nowrap;">Şablonu Uygula</button>
+          </div>
+        </div>
+        <div class="row">
+          <label for="editBarcode">Barkod (opsiyonel)</label>
+          <input id="editBarcode" value="${escapeHtml(p.barcode || '')}" placeholder="Barkod numarası">
+        </div>
+        <div class="sizes-section">
+          <label>Bedenler ve Stok</label>
+          <table class="sizes-table">
+            <thead>
+              <tr>
+                <th>Beden</th>
+                <th>Stok</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="sizesBody">
+              ${buildSizeRows(p.sizes || [])}
+            </tbody>
+          </table>
+          <button type="button" class="btn-add-size" id="addSizeBtn">+ Beden Ekle</button>
+        </div>
+      `;
+    }
+
+    function attachProductFormListeners() {
+      document.getElementById('addSizeBtn').addEventListener('click', () => {
+        const tbody = document.getElementById('sizesBody');
+        if (!tbody) return;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input class="size-name" placeholder="Beden" style="width:80px"></td>
+          <td><input type="number" class="size-stock" value="0" min="0" style="width:80px"></td>
+          <td><button type="button" class="btn-remove-size">✕</button></td>
+        `;
+        tbody.appendChild(tr);
+        tr.querySelector('.size-name').focus();
+      });
+
+      document.getElementById('sizesBody').addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-remove-size')) {
+          e.target.closest('tr').remove();
+        }
+      });
+
+      const editCategoryInput = document.getElementById('editCategory');
+      const presetBanner = document.getElementById('presetBanner');
+      const presetBannerText = document.getElementById('presetBannerText');
+
+      function updatePresetBanner() {
+        const preset = getCategoryPreset(editCategoryInput.value);
+        if (preset) {
+          presetBannerText.textContent = `"${editCategoryInput.value.trim()}" için ${preset.length} beden şablonu mevcut`;
+          presetBanner.style.display = 'block';
+        } else {
+          presetBanner.style.display = 'none';
+        }
+      }
+
+      editCategoryInput.addEventListener('input', updatePresetBanner);
+      updatePresetBanner();
+
+      document.getElementById('applyPresetBtn').addEventListener('click', () => {
+        const preset = getCategoryPreset(editCategoryInput.value);
+        if (!preset) return;
+
+        const tbody = document.getElementById('sizesBody');
+        const existingRows = tbody.querySelectorAll('tr');
+        const existingMap = {};
+        existingRows.forEach(row => {
+          const nameInput = row.querySelector('.size-name');
+          const stockInput = row.querySelector('.size-stock');
+          if (nameInput && nameInput.value.trim()) {
+            existingMap[nameInput.value.trim()] = Number(stockInput.value) || 0;
+          }
+        });
+
+        const presetSet = new Set(preset);
+        const extraSizes = Object.keys(existingMap).filter(s => !presetSet.has(s));
+        const newSizes = [
+          ...preset.map(s => ({ size: s, stock: existingMap[s] ?? 0 })),
+          ...extraSizes.map(s => ({ size: s, stock: existingMap[s] }))
+        ];
+
+        tbody.innerHTML = buildSizeRows(newSizes);
+      });
+    }
+
+    function openAddModal() {
+      state.mode = 'add';
+      state.selectedProduct = null;
+      modalTitle.textContent = 'Yeni Ürün Ekle';
+      modalForm.innerHTML = buildProductFormHtml(null);
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      attachProductFormListeners();
+    }
+
+    function openEditModal(productId) {
+      const product = state.products.find(item => item._id === productId);
+      if (!product) return;
+
+      state.mode = 'edit';
+      state.selectedProduct = productId;
+      modalTitle.textContent = 'Ürün Düzenle';
+      modalForm.innerHTML = buildProductFormHtml(product);
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      attachProductFormListeners();
+    }
+
+    async function deleteProduct(productId) {
+      if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
+      try {
+        await requestJson('/api/products/' + productId, { method: 'DELETE' });
+        await loadProducts();
+      } catch (error) {
+        alert(error.message || 'Ürün silinemedi');
+      }
+    }
+
+    function printLabel(productId) {
+      window.open('/api/products/' + productId + '/label-pdf', '_blank');
+    }
+
+    async function saveModalAction() {
+      if (!state.mode) return;
+
+      try {
+        if (state.mode === 'stock') {
+          if (!state.selectedProduct) return;
+          const quantity = Number(document.getElementById('stockQuantity').value || 0);
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            alert('Stok miktarı pozitif bir sayı olmalıdır');
+            return;
+          }
+
+          const product = state.products.find(p => p._id === state.selectedProduct);
+          const hasSizes = product && product.sizes && product.sizes.length > 0;
+
+          let sizeValue = null;
+          if (hasSizes) {
+            const sizeSelect = document.getElementById('stockSize');
+            if (sizeSelect && sizeSelect.tagName === 'SELECT') {
+              sizeValue = sizeSelect.value === '__new__'
+                ? (document.getElementById('newSizeInput') || {}).value || ''
+                : sizeSelect.value;
+              sizeValue = sizeValue.trim();
+              if (sizeSelect.value === '__new__' && !sizeValue) {
+                alert('Yeni beden adını girin');
+                return;
+              }
+            }
+          } else {
+            const sizeInput = document.getElementById('stockSize');
+            if (sizeInput && sizeInput.value.trim()) {
+              sizeValue = sizeInput.value.trim();
+            }
+          }
+
+          await requestJson('/api/products/' + state.selectedProduct + '/stock', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity, size: sizeValue || undefined })
+          });
+        }
+
+        if (state.mode === 'add' || state.mode === 'edit') {
+          const name = document.getElementById('editName').value.trim();
+          const category = document.getElementById('editCategory').value.trim();
+          const price = Number(document.getElementById('editPrice').value || 0);
+          const barcodeInput = document.getElementById('editBarcode');
+          const barcode = barcodeInput ? barcodeInput.value.trim() : '';
+
+          if (!name) { alert('Ürün adı boş olamaz'); return; }
+          if (!category) { alert('Kategori boş olamaz'); return; }
+          if (!Number.isFinite(price) || price < 0) { alert('Geçerli bir fiyat girin'); return; }
+
+          const sizeNames = document.querySelectorAll('#sizesBody .size-name');
+          const sizeStocks = document.querySelectorAll('#sizesBody .size-stock');
+          const sizes = [];
+          for (let i = 0; i < sizeNames.length; i++) {
+            const sizeName = sizeNames[i].value.trim();
+            const sizeStock = Math.max(0, Number(sizeStocks[i].value) || 0);
+            if (sizeName) {
+              sizes.push({ size: sizeName, stock: sizeStock });
+            }
+          }
+
+          if (state.mode === 'add') {
+            await requestJson('/api/products', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, category, price, barcode: barcode || undefined, sizes })
+            });
+          } else {
+            await requestJson('/api/products/' + state.selectedProduct, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, category, price, barcode: barcode || undefined, sizes })
+            });
+          }
+        }
+
+        closeModal();
+        await loadProducts();
+      } catch (error) {
+        alert(error.message || 'İşlem başarısız');
+      }
+    }
+
+    saveBtn.addEventListener('click', saveModalAction);
+    cancelBtn.addEventListener('click', closeModal);
+    document.getElementById('addProductBtn').addEventListener('click', openAddModal);
+
+    inventoryBody.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const action = button.getAttribute('data-action');
+      const productId = button.getAttribute('data-id');
+      if (!productId) return;
+      if (action === 'stock') openStockModal(productId);
+      if (action === 'edit') openEditModal(productId);
+      if (action === 'print') printLabel(productId);
+      if (action === 'delete') deleteProduct(productId);
+    });
+
+    searchInput.addEventListener('input', loadProducts);
+    categoryFilter.addEventListener('change', loadProducts);
+    sizeFilter.addEventListener('change', applyFiltersAndRender);
+
+    loadProducts();
+  </script>
 </body>
 </html>
