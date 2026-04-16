@@ -87,7 +87,7 @@ router.post('/api/products', async (req, res) => {
 
 router.put('/api/products/:id', async (req, res) => {
   try {
-    const { name, category, price, sizes } = req.body;
+    const { name, category, price, barcode, sizes } = req.body;
     const parsedPrice = toNumber(price);
 
     if (!name || !category || parsedPrice === null) {
@@ -102,6 +102,10 @@ router.put('/api/products/:id', async (req, res) => {
       category: String(category).trim(),
       price: Math.max(0, parsedPrice)
     };
+
+    if (barcode && String(barcode).trim()) {
+      updateData.barcode = String(barcode).trim();
+    }
 
     if (Array.isArray(sizes)) {
       const sizeList = cleanSizes(sizes);
@@ -121,6 +125,9 @@ router.put('/api/products/:id', async (req, res) => {
 
     res.json({ success: true, product });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'Bu barkod zaten kayıtlı' });
+    }
     console.error('Ürün güncelleme hatası:', error);
     res.status(500).json({ success: false, message: 'Ürün güncellenemedi' });
   }

@@ -8,7 +8,7 @@
     :root { color-scheme: light; }
     body { font-family: Arial, sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
     h1 { margin-top: 0; }
-    .toolbar { display: grid; grid-template-columns: 1fr 190px 190px; gap: 10px; margin-bottom: 14px; }
+    .toolbar { display: grid; grid-template-columns: 1fr 190px 190px 160px; gap: 10px; margin-bottom: 14px; }
     input, select, button { padding: 8px 10px; border: 1px solid #cfd6df; border-radius: 8px; font-size: 14px; }
     button { cursor: pointer; background: #fff; }
     button.primary { background: #1d4ed8; color: white; border-color: #1d4ed8; }
@@ -50,6 +50,7 @@
     <select id="sizeFilter">
       <option value="Tümü">Tüm Bedenler</option>
     </select>
+    <button type="button" id="addProductBtn" class="primary">+ Yeni Ürün Ekle</button>
   </div>
 
   <table>
@@ -298,22 +299,20 @@
       `).join('');
     }
 
-    function openEditModal(productId) {
-      const product = state.products.find(item => item._id === productId);
-      if (!product) return;
-
-      const html = `
+    function buildProductFormHtml(product) {
+      const p = product || {};
+      return `
         <div class="row">
           <label for="editName">Ürün Adı</label>
-          <input id="editName" value="${escapeHtml(product.name || '')}" required>
+          <input id="editName" value="${escapeHtml(p.name || '')}" required>
         </div>
         <div class="row">
           <label for="editPrice">Fiyat</label>
-          <input id="editPrice" type="number" min="0" step="0.01" value="${Number(product.price || 0)}" required>
+          <input id="editPrice" type="number" min="0" step="0.01" value="${p.price != null ? Number(p.price) : ''}" required>
         </div>
         <div class="row">
           <label for="editCategory">Kategori</label>
-          <input id="editCategory" value="${escapeHtml(product.category || '')}" list="editCategoryList" autocomplete="off" required>
+          <input id="editCategory" value="${escapeHtml(p.category || '')}" list="editCategoryList" autocomplete="off" required>
           <datalist id="editCategoryList">
             <option value="Judo">
             <option value="Ayakkabı">
@@ -327,6 +326,10 @@
             <button type="button" id="applyPresetBtn" style="font-size:12px; padding:5px 12px; background:#1d4ed8; color:#fff; border:none; border-radius:6px; cursor:pointer; white-space:nowrap;">Şablonu Uygula</button>
           </div>
         </div>
+        <div class="row">
+          <label for="editBarcode">Barkod (opsiyonel)</label>
+          <input id="editBarcode" value="${escapeHtml(p.barcode || '')}" placeholder="Barkod numarası">
+        </div>
         <div class="sizes-section">
           <label>Bedenler ve Stok</label>
           <table class="sizes-table">
@@ -338,20 +341,15 @@
               </tr>
             </thead>
             <tbody id="sizesBody">
-              ${buildSizeRows(product.sizes)}
+              ${buildSizeRows(p.sizes || [])}
             </tbody>
           </table>
           <button type="button" class="btn-add-size" id="addSizeBtn">+ Beden Ekle</button>
         </div>
       `;
+    }
 
-      state.mode = 'edit';
-      state.selectedProduct = productId;
-      modalTitle.textContent = 'Ürün Düzenle';
-      modalForm.innerHTML = html;
-      modal.classList.add('open');
-      modal.setAttribute('aria-hidden', 'false');
-
+    function attachProductFormListeners() {
       document.getElementById('addSizeBtn').addEventListener('click', () => {
         const tbody = document.getElementById('sizesBody');
         if (!tbody) return;
@@ -414,6 +412,29 @@
       });
     }
 
+    function openAddModal() {
+      state.mode = 'add';
+      state.selectedProduct = null;
+      modalTitle.textContent = 'Yeni Ürün Ekle';
+      modalForm.innerHTML = buildProductFormHtml(null);
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      attachProductFormListeners();
+    }
+
+    function openEditModal(productId) {
+      const product = state.products.find(item => item._id === productId);
+      if (!product) return;
+
+      state.mode = 'edit';
+      state.selectedProduct = productId;
+      modalTitle.textContent = 'Ürün Düzenle';
+      modalForm.innerHTML = buildProductFormHtml(product);
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      attachProductFormListeners();
+    }
+
     async function deleteProduct(productId) {
       if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
       try {
@@ -429,10 +450,11 @@
     }
 
     async function saveModalAction() {
-      if (!state.selectedProduct || !state.mode) return;
+      if (!state.mode) return;
 
       try {
         if (state.mode === 'stock') {
+          if (!state.selectedProduct) return;
           const quantity = Number(document.getElementById('stockQuantity').value || 0);
           if (!Number.isFinite(quantity) || quantity <= 0) {
             alert('Stok miktarı pozitif bir sayı olmalıdır');
@@ -469,10 +491,12 @@
           });
         }
 
-        if (state.mode === 'edit') {
+        if (state.mode === 'add' || state.mode === 'edit') {
           const name = document.getElementById('editName').value.trim();
           const category = document.getElementById('editCategory').value.trim();
           const price = Number(document.getElementById('editPrice').value || 0);
+          const barcodeInput = document.getElementById('editBarcode');
+          const barcode = barcodeInput ? barcodeInput.value.trim() : '';
 
           if (!name) { alert('Ürün adı boş olamaz'); return; }
           if (!category) { alert('Kategori boş olamaz'); return; }
@@ -489,11 +513,19 @@
             }
           }
 
-          await requestJson('/api/products/' + state.selectedProduct, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, category, price, sizes })
-          });
+          if (state.mode === 'add') {
+            await requestJson('/api/products', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, category, price, barcode: barcode || undefined, sizes })
+            });
+          } else {
+            await requestJson('/api/products/' + state.selectedProduct, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, category, price, barcode: barcode || undefined, sizes })
+            });
+          }
         }
 
         closeModal();
@@ -505,6 +537,7 @@
 
     saveBtn.addEventListener('click', saveModalAction);
     cancelBtn.addEventListener('click', closeModal);
+    document.getElementById('addProductBtn').addEventListener('click', openAddModal);
 
     inventoryBody.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-action]');
