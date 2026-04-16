@@ -86,12 +86,30 @@
       giyim: ['XXS','XS','S','M','L','XL','XXL','3XL','4XL','5XL']
     };
 
+    // Kategoriler — beden şablonu eşleştirmesi
+    // Judo, Karate, Taekwondo → cm tabanlı şablon
+    // Boks, Muay Thai, Kick Boks, Güreş, MMA, tüm giyim türleri → S/M/L şablon
+    // Ayakkabı → numara şablon
     function getCategoryPreset(category) {
       if (!category) return null;
       const lower = String(category).toLowerCase().trim();
-      if (lower.includes('judo')) return SIZE_PRESETS.judo;
+      if (lower.includes('judo') || lower.includes('karate') || lower.includes('taekwondo') || lower.includes('tekvando')) {
+        return SIZE_PRESETS.judo;
+      }
       if (lower.includes('ayakkab')) return SIZE_PRESETS.ayakkabı;
-      if (lower.includes('giyim') || lower.includes('kıyafet') || lower.includes('kiyafet') || lower.includes('tekstil')) return SIZE_PRESETS.giyim;
+      if (
+        lower.includes('giyim') ||
+        lower.includes('kıyafet') || lower.includes('kiyafet') ||
+        lower.includes('tekstil') ||
+        lower.includes('boks') ||
+        lower.includes('muay') ||
+        lower.includes('kick') ||
+        lower.includes('güreş') || lower.includes('gures') ||
+        lower.includes('mma') ||
+        lower.includes('fitness') ||
+        lower.includes('outdoor') ||
+        lower.includes('sporcu')
+      ) return SIZE_PRESETS.giyim;
       return null;
     }
 
@@ -314,10 +332,32 @@
           <label for="editCategory">Kategori</label>
           <input id="editCategory" value="${escapeHtml(p.category || '')}" list="editCategoryList" autocomplete="off" required>
           <datalist id="editCategoryList">
+            <optgroup label="Dövüş Sporları">
             <option value="Judo">
-            <option value="Ayakkabı">
+            <option value="Karate">
+            <option value="Taekwondo">
+            <option value="Boks">
+            <option value="Muay Thai">
+            <option value="Kick Boks">
+            <option value="Güreş">
+            <option value="MMA">
+            </optgroup>
+            <optgroup label="Giyim ve Ayakkabı">
+            <option value="Spor Giyim">
+            <option value="Spor Ayakkabı">
             <option value="Giyim">
+            <option value="Ayakkabı">
+            </optgroup>
+            <optgroup label="Spor ve Ekipman">
+            <option value="Fitness Ekipmanı">
+            <option value="Outdoor Ekipman">
+            <option value="Kamp Malzemeleri">
+            <option value="Sporcu Beslenme">
+            </optgroup>
+            <optgroup label="Diğer">
+            <option value="Aksesuar">
             <option value="Diğer">
+            </optgroup>
           </datalist>
         </div>
         <div id="presetBanner" style="display:none; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 12px; font-size:13px;">
