@@ -10,13 +10,15 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 router.get('/api/products', async (req, res) => {
   try {
     const { search, category } = req.query;
     const query = {};
 
     if (search && String(search).trim()) {
-      const term = String(search).trim();
+      const term = escapeRegex(String(search).trim());
       query.$or = [
         { name: { $regex: term, $options: 'i' } },
         { barcode: { $regex: term, $options: 'i' } }
@@ -30,7 +32,8 @@ router.get('/api/products', async (req, res) => {
     const products = await Product.find(query).sort({ createdAt: -1 });
     res.json({ success: true, products });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Ürünler yüklenemedi: ' + error.message });
+    console.error('Ürün listeleme hatası:', error);
+    res.status(500).json({ success: false, message: 'Ürünler yüklenemedi' });
   }
 });
 
@@ -61,7 +64,8 @@ router.post('/api/products', async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'Bu barkod zaten kayıtlı' });
     }
-    res.status(500).json({ success: false, message: 'Ürün eklenemedi: ' + error.message });
+    console.error('Ürün ekleme hatası:', error);
+    res.status(500).json({ success: false, message: 'Ürün eklenemedi' });
   }
 });
 
@@ -93,7 +97,8 @@ router.put('/api/products/:id', async (req, res) => {
 
     res.json({ success: true, product });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Ürün güncellenemedi: ' + error.message });
+    console.error('Ürün güncelleme hatası:', error);
+    res.status(500).json({ success: false, message: 'Ürün güncellenemedi' });
   }
 });
 
@@ -104,6 +109,9 @@ router.patch('/api/products/:id/stock', async (req, res) => {
     if (parsedQuantity === null) {
       return res.status(400).json({ success: false, message: 'Geçerli bir stok miktarı girin' });
     }
+    if (parsedQuantity <= 0) {
+      return res.status(400).json({ success: false, message: 'Stok miktarı pozitif olmalıdır' });
+    }
 
     const product = await Product.findById(req.params.id);
 
@@ -111,12 +119,14 @@ router.patch('/api/products/:id/stock', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Ürün bulunamadı' });
     }
 
-    product.stock = Math.max(0, product.stock + parsedQuantity);
+    const currentStock = Number(product.stock) || 0;
+    product.stock = currentStock + parsedQuantity;
     await product.save();
 
     res.json({ success: true, product });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Stok güncellenemedi: ' + error.message });
+    console.error('Stok güncelleme hatası:', error);
+    res.status(500).json({ success: false, message: 'Stok güncellenemedi' });
   }
 });
 
@@ -128,8 +138,9 @@ router.get('/api/products/:id/label-pdf', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Ürün bulunamadı' });
     }
 
+    const safeId = encodeURIComponent(String(product._id || 'urun'));
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="etiket-${product._id}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="etiket-${safeId}.pdf"`);
 
     const doc = new PDFDocument({ size: 'A6', margin: 24 });
     doc.pipe(res);
@@ -144,7 +155,11 @@ router.get('/api/products/:id/label-pdf', async (req, res) => {
 
     doc.end();
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Etiket oluşturulamadı: ' + error.message });
+    console.error('Etiket PDF hatası:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: 'Etiket oluşturulamadı' });
+    }
+    res.end();
   }
 });
 
@@ -158,7 +173,8 @@ router.delete('/api/products/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Ürün silindi' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Ürün silinemedi: ' + error.message });
+    console.error('Ürün silme hatası:', error);
+    res.status(500).json({ success: false, message: 'Ürün silinemedi' });
   }
 });
 

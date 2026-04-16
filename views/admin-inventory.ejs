@@ -105,16 +105,28 @@
       categoryFilter.value = categories.includes(current) ? current : 'Tümü';
     }
 
+    async function requestJson(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.message || 'İstek başarısız');
+      }
+      return payload;
+    }
+
     async function loadProducts() {
       const params = new URLSearchParams();
       if (searchInput.value.trim()) params.set('search', searchInput.value.trim());
       if (categoryFilter.value !== 'Tümü') params.set('category', categoryFilter.value);
 
-      const response = await fetch('/api/products?' + params.toString());
-      const payload = await response.json();
-      state.products = payload.products || [];
-      setCategories(state.products);
-      renderTable(state.products);
+      try {
+        const payload = await requestJson('/api/products?' + params.toString());
+        state.products = payload.products || [];
+        setCategories(state.products);
+        renderTable(state.products);
+      } catch (error) {
+        alert(error.message || 'Ürünler yüklenemedi');
+      }
     }
 
     function renderTable(products) {
@@ -128,10 +140,10 @@
           <td>${formatPrice(product.price)}</td>
           <td>
             <div class="actions">
-              <button onclick="openStockModal('${escapeHtml(product._id)}')">Stok Ekle</button>
-              <button onclick="openEditModal('${escapeHtml(product._id)}')">Ürün Düzenle</button>
-              <button onclick="printLabel('${escapeHtml(product._id)}')">Etiket Yazdır</button>
-              <button onclick="deleteProduct('${escapeHtml(product._id)}')">Ürün Sil</button>
+              <button data-action="stock" data-id="${escapeHtml(product._id)}">Stok Ekle</button>
+              <button data-action="edit" data-id="${escapeHtml(product._id)}">Ürün Düzenle</button>
+              <button data-action="print" data-id="${escapeHtml(product._id)}">Etiket Yazdır</button>
+              <button data-action="delete" data-id="${escapeHtml(product._id)}">Ürün Sil</button>
             </div>
           </td>
         </tr>
@@ -158,7 +170,7 @@
     function openStockModal(productId) {
       openModal(
         'Stok Ekle',
-        '<div class="row"><label>Stok Miktarı</label><input type="number" id="stockQuantity" value="1" min="1"></div>',
+        '<div class="row"><label for="stockQuantity">Stok Miktarı</label><input type="number" id="stockQuantity" value="1" min="1"></div>',
         'stock',
         productId
       );
@@ -171,9 +183,9 @@
       openModal(
         'Ürün Düzenle',
         `
-          <div class="row"><label>Ürün Adı</label><input id="editName" value="${escapeHtml(product.name || '')}" required></div>
-          <div class="row"><label>Fiyat</label><input id="editPrice" type="number" min="0" step="0.01" value="${Number(product.price || 0)}" required></div>
-          <div class="row"><label>Kategori</label><input id="editCategory" value="${escapeHtml(product.category || '')}" required></div>
+          <div class="row"><label for="editName">Ürün Adı</label><input id="editName" value="${escapeHtml(product.name || '')}" required></div>
+          <div class="row"><label for="editPrice">Fiyat</label><input id="editPrice" type="number" min="0" step="0.01" value="${Number(product.price || 0)}" required></div>
+          <div class="row"><label for="editCategory">Kategori</label><input id="editCategory" value="${escapeHtml(product.category || '')}" required></div>
         `,
         'edit',
         productId
@@ -183,8 +195,12 @@
     async function deleteProduct(productId) {
       if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
 
-      await fetch('/api/products/' + productId, { method: 'DELETE' });
-      await loadProducts();
+      try {
+        await requestJson('/api/products/' + productId, { method: 'DELETE' });
+        await loadProducts();
+      } catch (error) {
+        alert(error.message || 'Ürün silinemedi');
+      }
     }
 
     function printLabel(productId) {
@@ -194,43 +210,60 @@
     async function saveModalAction() {
       if (!state.selectedProduct || !state.mode) return;
 
-      if (state.mode === 'stock') {
-        const quantity = Number(document.getElementById('stockQuantity').value || 0);
-        if (!Number.isFinite(quantity) || quantity <= 0) {
-          alert('Geçerli bir stok miktarı girin');
-          return;
+      try {
+        if (state.mode === 'stock') {
+          const quantity = Number(document.getElementById('stockQuantity').value || 0);
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            alert('Geçerli bir stok miktarı girin');
+            return;
+          }
+
+          await requestJson('/api/products/' + state.selectedProduct + '/stock', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity })
+          });
         }
 
-        await fetch('/api/products/' + state.selectedProduct + '/stock', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quantity })
-        });
-      }
+        if (state.mode === 'edit') {
+          const name = document.getElementById('editName').value.trim();
+          const category = document.getElementById('editCategory').value.trim();
+          const price = Number(document.getElementById('editPrice').value || 0);
 
-      if (state.mode === 'edit') {
-        const name = document.getElementById('editName').value.trim();
-        const category = document.getElementById('editCategory').value.trim();
-        const price = Number(document.getElementById('editPrice').value || 0);
+          if (!name || !category || !Number.isFinite(price) || price < 0) {
+            alert('Ürün adı, kategori ve geçerli fiyat girin');
+            return;
+          }
 
-        if (!name || !category || !Number.isFinite(price) || price < 0) {
-          alert('Ürün adı, kategori ve geçerli fiyat girin');
-          return;
+          await requestJson('/api/products/' + state.selectedProduct, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, category, price })
+          });
         }
 
-        await fetch('/api/products/' + state.selectedProduct, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, category, price })
-        });
+        closeModal();
+        await loadProducts();
+      } catch (error) {
+        alert(error.message || 'İşlem başarısız');
       }
-
-      closeModal();
-      await loadProducts();
     }
 
     saveBtn.addEventListener('click', saveModalAction);
     cancelBtn.addEventListener('click', closeModal);
+    inventoryBody.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+
+      const action = button.getAttribute('data-action');
+      const productId = button.getAttribute('data-id');
+      if (!productId) return;
+
+      if (action === 'stock') openStockModal(productId);
+      if (action === 'edit') openEditModal(productId);
+      if (action === 'print') printLabel(productId);
+      if (action === 'delete') deleteProduct(productId);
+    });
     searchInput.addEventListener('input', loadProducts);
     categoryFilter.addEventListener('change', loadProducts);
 
