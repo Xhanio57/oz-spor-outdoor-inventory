@@ -79,6 +79,21 @@
   </div>
 
   <script>
+    const SIZE_PRESETS = {
+      judo: ['100 cm','110 cm','120 cm','130 cm','140 cm','150 cm','160 cm','170 cm','180 cm','190 cm','200 cm'],
+      ayakkabı: ['36','37','38','39','40','41','42','43','44','45','46'],
+      giyim: ['XXS','XS','S','M','L','XL','XXL','3XL','4XL','5XL']
+    };
+
+    function getCategoryPreset(category) {
+      if (!category) return null;
+      const lower = String(category).toLowerCase().trim();
+      if (lower.includes('judo')) return SIZE_PRESETS.judo;
+      if (lower.includes('ayakkab')) return SIZE_PRESETS.ayakkabı;
+      if (lower.includes('giyim') || lower.includes('kıyafet') || lower.includes('kiyafet') || lower.includes('tekstil')) return SIZE_PRESETS.giyim;
+      return null;
+    }
+
     const state = {
       products: [],
       selectedProduct: null,
@@ -298,7 +313,19 @@
         </div>
         <div class="row">
           <label for="editCategory">Kategori</label>
-          <input id="editCategory" value="${escapeHtml(product.category || '')}" required>
+          <input id="editCategory" value="${escapeHtml(product.category || '')}" list="editCategoryList" autocomplete="off" required>
+          <datalist id="editCategoryList">
+            <option value="Judo">
+            <option value="Ayakkabı">
+            <option value="Giyim">
+            <option value="Diğer">
+          </datalist>
+        </div>
+        <div id="presetBanner" style="display:none; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 12px; font-size:13px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <span id="presetBannerText" style="color:#1e40af;"></span>
+            <button type="button" id="applyPresetBtn" style="font-size:12px; padding:5px 12px; background:#1d4ed8; color:#fff; border:none; border-radius:6px; cursor:pointer; white-space:nowrap;">Şablonu Uygula</button>
+          </div>
         </div>
         <div class="sizes-section">
           <label>Bedenler ve Stok</label>
@@ -342,6 +369,48 @@
         if (e.target.classList.contains('btn-remove-size')) {
           e.target.closest('tr').remove();
         }
+      });
+
+      const editCategoryInput = document.getElementById('editCategory');
+      const presetBanner = document.getElementById('presetBanner');
+      const presetBannerText = document.getElementById('presetBannerText');
+
+      function updatePresetBanner() {
+        const preset = getCategoryPreset(editCategoryInput.value);
+        if (preset) {
+          presetBannerText.textContent = `"${editCategoryInput.value.trim()}" için ${preset.length} beden şablonu mevcut`;
+          presetBanner.style.display = 'block';
+        } else {
+          presetBanner.style.display = 'none';
+        }
+      }
+
+      editCategoryInput.addEventListener('input', updatePresetBanner);
+      updatePresetBanner();
+
+      document.getElementById('applyPresetBtn').addEventListener('click', () => {
+        const preset = getCategoryPreset(editCategoryInput.value);
+        if (!preset) return;
+
+        const tbody = document.getElementById('sizesBody');
+        const existingRows = tbody.querySelectorAll('tr');
+        const existingMap = {};
+        existingRows.forEach(row => {
+          const nameInput = row.querySelector('.size-name');
+          const stockInput = row.querySelector('.size-stock');
+          if (nameInput && nameInput.value.trim()) {
+            existingMap[nameInput.value.trim()] = Number(stockInput.value) || 0;
+          }
+        });
+
+        const presetSet = new Set(preset);
+        const extraSizes = Object.keys(existingMap).filter(s => !presetSet.has(s));
+        const newSizes = [
+          ...preset.map(s => ({ size: s, stock: existingMap[s] ?? 0 })),
+          ...extraSizes.map(s => ({ size: s, stock: existingMap[s] }))
+        ];
+
+        tbody.innerHTML = buildSizeRows(newSizes);
       });
     }
 
