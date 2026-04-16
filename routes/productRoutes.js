@@ -12,9 +12,16 @@ const toNumber = (value) => {
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const cleanSizes = (raw) =>
+  (Array.isArray(raw) ? raw : [])
+    .map((s) => ({ size: String(s.size || '').trim(), stock: Math.max(0, Number(s.stock) || 0) }))
+    .filter((s) => s.size);
+
+const totalFromSizes = (sizes) => sizes.reduce((sum, s) => sum + s.stock, 0);
+
 router.get('/api/products', async (req, res) => {
   try {
-    const { search, category } = req.query;
+    const { search, category, size } = req.query;
     const query = {};
 
     if (search && String(search).trim()) {
@@ -29,6 +36,10 @@ router.get('/api/products', async (req, res) => {
       query.category = category;
     }
 
+    if (size && size !== 'Tümü') {
+      query['sizes.size'] = String(size).trim();
+    }
+
     const products = await Product.find(query).sort({ createdAt: -1 });
     res.json({ success: true, products });
   } catch (error) {
@@ -39,9 +50,8 @@ router.get('/api/products', async (req, res) => {
 
 router.post('/api/products', async (req, res) => {
   try {
-    const { name, category, barcode, stock, price, image } = req.body;
+    const { name, category, barcode, stock, price, image, sizes } = req.body;
     const parsedPrice = toNumber(price);
-    const parsedStock = toNumber(stock);
 
     if (!name || !category || parsedPrice === null) {
       return res.status(400).json({
@@ -50,11 +60,17 @@ router.post('/api/products', async (req, res) => {
       });
     }
 
+    const sizeList = cleanSizes(sizes);
+    const totalStock = sizeList.length > 0
+      ? totalFromSizes(sizeList)
+      : Math.max(0, toNumber(stock) ?? 0);
+
     const product = await Product.create({
       name: String(name).trim(),
       category: String(category).trim(),
       barcode: barcode ? String(barcode).trim() : undefined,
-      stock: parsedStock === null ? 0 : Math.max(0, parsedStock),
+      stock: totalStock,
+      sizes: sizeList,
       price: Math.max(0, parsedPrice),
       image
     });
@@ -71,7 +87,7 @@ router.post('/api/products', async (req, res) => {
 
 router.put('/api/products/:id', async (req, res) => {
   try {
-    const { name, category, price } = req.body;
+    const { name, category, price, sizes } = req.body;
     const parsedPrice = toNumber(price);
 
     if (!name || !category || parsedPrice === null) {
@@ -81,13 +97,21 @@ router.put('/api/products/:id', async (req, res) => {
       });
     }
 
+    const updateData = {
+      name: String(name).trim(),
+      category: String(category).trim(),
+      price: Math.max(0, parsedPrice)
+    };
+
+    if (Array.isArray(sizes)) {
+      const sizeList = cleanSizes(sizes);
+      updateData.sizes = sizeList;
+      updateData.stock = totalFromSizes(sizeList);
+    }
+
     const product = await Product.findByIdAndUpdate(
       req.params.id,
-      {
-        name: String(name).trim(),
-        category: String(category).trim(),
-        price: Math.max(0, parsedPrice)
-      },
+      updateData,
       { new: true, runValidators: true }
     );
 
@@ -105,6 +129,7 @@ router.put('/api/products/:id', async (req, res) => {
 router.patch('/api/products/:id/stock', async (req, res) => {
   try {
     const parsedQuantity = toNumber(req.body.quantity);
+    const sizeParam = req.body.size ? String(req.body.size).trim() : null;
 
     if (parsedQuantity === null) {
       return res.status(400).json({ success: false, message: 'Geçerli bir stok miktarı girin' });
@@ -119,10 +144,19 @@ router.patch('/api/products/:id/stock', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Ürün bulunamadı' });
     }
 
-    const currentStock = Number(product.stock) || 0;
-    product.stock = currentStock + parsedQuantity;
-    await product.save();
+    if (sizeParam) {
+      const existing = product.sizes.find((s) => s.size === sizeParam);
+      if (existing) {
+        existing.stock = (Number(existing.stock) || 0) + parsedQuantity;
+      } else {
+        product.sizes.push({ size: sizeParam, stock: parsedQuantity });
+      }
+      product.stock = totalFromSizes(product.sizes);
+    } else {
+      product.stock = (Number(product.stock) || 0) + parsedQuantity;
+    }
 
+    await product.save();
     res.json({ success: true, product });
   } catch (error) {
     console.error('Stok güncelleme hatası:', error);
@@ -151,7 +185,16 @@ router.get('/api/products/:id/label-pdf', async (req, res) => {
     doc.text(`Kategori: ${product.category}`);
     doc.text(`Barkod: ${product.barcode || '-'}`);
     doc.text(`Fiyat: ${Number(product.price).toFixed(2)} ₺`);
-    doc.text(`Stok: ${product.stock}`);
+
+    if (product.sizes && product.sizes.length > 0) {
+      doc.text(`Toplam Stok: ${product.stock}`);
+      doc.text(`Bedenler:`);
+      product.sizes.forEach((s) => {
+        doc.text(`  ${s.size}: ${s.stock} adet`);
+      });
+    } else {
+      doc.text(`Stok: ${product.stock}`);
+    }
 
     doc.end();
   } catch (error) {
